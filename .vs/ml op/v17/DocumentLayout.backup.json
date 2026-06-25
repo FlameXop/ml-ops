@@ -1,0 +1,71 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\Unity\\Projects\\ml op\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{3836446E-A570-6CE3-2157-765E6AA71692}|Assembly-CSharp.csproj|d:\\unity\\projects\\ml op\\assets\\scripts\\enemygoalai.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3836446E-A570-6CE3-2157-765E6AA71692}|Assembly-CSharp.csproj|solutionrelative:assets\\scripts\\enemygoalai.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3836446E-A570-6CE3-2157-765E6AA71692}|Assembly-CSharp.csproj|d:\\unity\\projects\\ml op\\assets\\scripts\\tpsplayercontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3836446E-A570-6CE3-2157-765E6AA71692}|Assembly-CSharp.csproj|solutionrelative:assets\\scripts\\tpsplayercontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3836446E-A570-6CE3-2157-765E6AA71692}|Assembly-CSharp.csproj|d:\\unity\\projects\\ml op\\assets\\scripts\\playeranimation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3836446E-A570-6CE3-2157-765E6AA71692}|Assembly-CSharp.csproj|solutionrelative:assets\\scripts\\playeranimation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "EnemyGoalAi.cs",
+              "DocumentMoniker": "D:\\Unity\\Projects\\ml op\\Assets\\Scripts\\EnemyGoalAi.cs",
+              "RelativeDocumentMoniker": "Assets\\Scripts\\EnemyGoalAi.cs",
+              "ToolTip": "D:\\Unity\\Projects\\ml op\\Assets\\Scripts\\EnemyGoalAi.cs",
+              "RelativeToolTip": "Assets\\Scripts\\EnemyGoalAi.cs",
+              "ViewState": "AgIAAAECAAAAAAAAAAAUwCYCAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-23T14:08:43.654Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "TPSPlayerController.cs",
+              "DocumentMoniker": "D:\\Unity\\Projects\\ml op\\Assets\\Scripts\\TPSPlayerController.cs",
+              "RelativeDocumentMoniker": "Assets\\Scripts\\TPSPlayerController.cs",
+              "ToolTip": "D:\\Unity\\Projects\\ml op\\Assets\\Scripts\\TPSPlayerController.cs",
+              "RelativeToolTip": "Assets\\Scripts\\TPSPlayerController.cs",
+              "ViewState": "AgIAAG8AAAAAAAAAAAAUwIMAAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-23T08:32:27.049Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "PlayerAnimation.cs",
+              "DocumentMoniker": "D:\\Unity\\Projects\\ml op\\Assets\\Scripts\\PlayerAnimation.cs",
+              "RelativeDocumentMoniker": "Assets\\Scripts\\PlayerAnimation.cs",
+              "ToolTip": "D:\\Unity\\Projects\\ml op\\Assets\\Scripts\\PlayerAnimation.cs",
+              "RelativeToolTip": "Assets\\Scripts\\PlayerAnimation.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAADwvx0AAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-23T07:52:15.994Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
