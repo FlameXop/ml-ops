@@ -7,7 +7,7 @@ using System.Collections;
 public class TPSPlayerController : MonoBehaviour
 {
     [Header("Health System")]
-    public float maxHealth = 100f;
+    public float maxHealth = 200f;
     private float currentHealth;
     public Slider healthBar; // Drag your PlayerHealthBar UI here!
 
@@ -24,10 +24,18 @@ public class TPSPlayerController : MonoBehaviour
     public Transform cameraTransform;
     public Animator anim;
 
+    // --- NEW: Audio Variables for Player Shooting ---
+    [Header("Polish (SFX)")]
+    public AudioClip shootSound; 
+    public AudioSource playerAudioSource; 
+
     private CharacterController controller;
     private Vector3 velocity;
     private LineRenderer tracer;
     private float nextFireTime;
+
+    // --- NEW: Added to remember start location ---
+    private Vector3 startPosition; 
 
     void Start()
     {
@@ -41,6 +49,9 @@ public class TPSPlayerController : MonoBehaviour
         // Initialize Health
         currentHealth = maxHealth;
         if (healthBar != null) healthBar.value = currentHealth;
+
+        // --- NEW: Save the exact spot the player spawns in at ---
+        startPosition = transform.position; 
     }
 
     void Update()
@@ -67,8 +78,41 @@ public class TPSPlayerController : MonoBehaviour
     void Die()
     {
         Debug.Log("PLAYER IS DEAD!");
+        
+        // Reset the Valorant kill audio back to tier 1
+        if (KillManager.Instance != null)
+        {
+            KillManager.Instance.ResetStreakOnDeath();
+        }
+
         // TODO: Play death animation, restart level, show game over screen
         // anim.SetTrigger("Die");
+
+        // --- NEW: Start the respawn process ---
+        StartCoroutine(RespawnRoutine()); 
+    }
+
+    // --- NEW: The Respawn Logic ---
+    IEnumerator RespawnRoutine()
+    {
+        // Wait 3 seconds before respawning
+        yield return new WaitForSeconds(1f);
+
+        // Turn off controller to allow teleportation
+        controller.enabled = false;
+        
+        // Teleport back to start
+        transform.position = startPosition;
+        
+        // Refill health
+        currentHealth = maxHealth;
+        if (healthBar != null) healthBar.value = currentHealth;
+
+        // Optional: Reset animator if you have a death animation
+        if (anim != null) anim.Play("Idle"); 
+
+        // Turn controller back on so player can move again
+        controller.enabled = true;
     }
 
     // --- MOVEMENT & COMBAT ---
@@ -79,8 +123,8 @@ public class TPSPlayerController : MonoBehaviour
 
         if (anim != null)
         {
-            anim.SetFloat("DirX", horizontal);
-            anim.SetFloat("DirY", vertical);
+            anim.SetFloat("Blend", horizontal);
+            anim.SetFloat("Speed", vertical);
         }
 
         Vector3 forward = cameraTransform.forward;
@@ -112,22 +156,34 @@ public class TPSPlayerController : MonoBehaviour
         if (Input.GetButton("Fire1") && Time.time >= nextFireTime) Shoot();
     }
 
-    void Shoot()
+   void Shoot()
     {
         nextFireTime = Time.time + fireRate;
+
+        // --- UPDATED: The Anti-Crash Audio Setup ---
+        if (shootSound != null && playerAudioSource != null)
+        {
+            // 1. Instantly stop the previous gunshot's echo from stacking
+            playerAudioSource.Stop(); 
+            
+            // 2. Add a tiny bit of random pitch so machine gun fire sounds natural
+            playerAudioSource.pitch = Random.Range(0.95f, 1.05f); 
+            
+            // 3. Play the clean, new gunshot
+            playerAudioSource.clip = shootSound;
+            playerAudioSource.Play();
+        }
 
         Ray ray = Camera.main.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
         Vector3 hitPoint;
 
-        if (Physics.Raycast(ray, out RaycastHit hit, weaponRange))
+       if (Physics.Raycast(ray, out RaycastHit hit, weaponRange))
         {
             hitPoint = hit.point;
             
-            // DID WE HIT THE ENEMY?
             if (hit.collider.CompareTag("Enemy"))
             {
-                // Deal 25 damage (4 shots to kill 100 HP)
-                hit.collider.GetComponent<EnemyGoalAiNoNavMesh>().TakeDamage(25f);
+                hit.collider.GetComponent<EnemyAI>().TakeDamage(25f, hit.point, hit.normal);
             }
         }
         else
@@ -137,7 +193,6 @@ public class TPSPlayerController : MonoBehaviour
 
         if (firePoint != null) StartCoroutine(RenderLaser(firePoint.position, hitPoint));
     }
-
     IEnumerator RenderLaser(Vector3 start, Vector3 end)
     {
         tracer.SetPosition(0, start);
