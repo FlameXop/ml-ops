@@ -5,19 +5,14 @@ using System.Collections;
 
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(LineRenderer))]
-public class EnemyAI : MonoBehaviour
+public class EnemeyGoalAi : MonoBehaviour
 {
-    public enum AIState
-    {
-        Patrol,
-        Investigate,
-        Attack,
-        Cover,
-        Dead
-    }
+    public enum AIState { Patrol, Investigate, Combat, Retreat, Ambush, Dead } // NEW: Ambush State
+    public enum CombatTactic { WideSwing, CrouchSpray, JigglePeek, HoldAngle } // NEW: HoldAngle tactic
 
-    [Header("State")]
+    [Header("Core State")]
     public AIState currentState;
+    public CombatTactic currentTactic;
 
     [Header("References")]
     public Transform eyes;
@@ -27,61 +22,54 @@ public class EnemyAI : MonoBehaviour
     [Header("Patrol")]
     public Transform[] patrolPoints;
 
-    [Header("Cover")]
+    [Header("Cover & Memory")]
     public Transform[] coverPoints;
-    public float coverTime = 3f;
-    // --- NEW VARIABLES ---
-    [Tooltip("If the nearest cover is further than this, the AI might choose to fight instead of run.")]
-    public float maxRunDistance = 3.5f;
-
-    [Header("Vision")]
-    public float visionRange = 30f;
-
-    [Range(1, 180)]
-    public float visionAngle = 120f;
-
+    public float fearLevel = 0f; 
     public LayerMask obstacleMask;
 
-    [Header("Combat")]
-    public float fireRate = 0.5f;
-    public float damage = 25f;
-    public float strafeRadius = 5f;
-    public int shotsBeforeCover = 4;
+    [Header("AAA Gunplay & Headshots")]
+    public float fireRate = 0.15f; 
+    public float baseDamage = 25f;
+    public float headshotMultiplier = 8f; 
+    
+    [Header("Human-Like Delays")]
+    public float reactionTime = 0.35f; 
+    private float canShootTime;
+    private bool wasPlayerVisibleLastFrame;
+    private float aggroTimer = 0f; // NEW: Forces him to stay in combat when shot
 
     [Header("Movement")]
     public float patrolSpeed = 3.5f;
-    public float combatSpeed = 5.5f;
-    public float coverSpeed = 7f;
+    public float walkSpeed = 3.5f;
+    public float sprintSpeed = 6.5f;
+    public float crouchSpeed = 2f;
 
     [Header("Health")]
     public float maxHealth = 100f;
+    private float currentHealth;
 
-    float currentHealth;
-
+    // Components
     NavMeshAgent agent;
     Animator anim;
     LineRenderer tracer;
-    
-
     Transform player;
 
+    // Tracking
     bool playerVisible;
-
     float nextFireTime;
-    float nextStrafeTime;
-    float coverTimer;
-
-    int shotCounter;
-
+    float tacticTimer;
+    CombatTactic lastTactic = CombatTactic.CrouchSpray;
+    
+    Vector3 hidePosition;
+    Vector3 peekPosition;
+    Vector3 startPosition;
     Vector3 lastKnownPosition;
-    Transform activeCover;
+    bool isCrouching = false;
+
     [Header("Polish (VFX & SFX)")]
-    public GameObject hitParticlePrefab; // Assign a spark/fire particle prefab here
-    public AudioClip footstepSound;
+    public GameObject hitParticlePrefab;
     public AudioClip shootSound;
     public AudioSource enemyAudioSource;
-    
-    private Vector3 startPosition;
 
     void Start()
     {
@@ -89,18 +77,13 @@ public class EnemyAI : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
         anim = GetComponentInChildren<Animator>();
         tracer = GetComponent<LineRenderer>();
-
         tracer.positionCount = 2;
         tracer.enabled = false;
 
-        GameObject p =
-            GameObject.FindGameObjectWithTag("Player");
-
-        if (p != null)
-            player = p.transform;
+        GameObject p = GameObject.FindGameObjectWithTag("Player");
+        if (p != null) player = p.transform;
 
         currentHealth = maxHealth;
-
         if (healthBar != null)
         {
             healthBar.maxValue = maxHealth;
@@ -108,331 +91,251 @@ public class EnemyAI : MonoBehaviour
         }
 
         agent.speed = patrolSpeed;
-        agent.acceleration = 20f;
-
         currentState = AIState.Patrol;
-
         PickRandomPatrol();
     }
 
     void Update()
     {
-        if (currentState == AIState.Dead)
-            return;
+        if (currentState == AIState.Dead || player == null) return;
 
-        if (player == null)
-            return;
+        if (aggroTimer > 0) aggroTimer -= Time.deltaTime;
 
         UpdateVision();
-
         UpdateAnimator();
 
         switch (currentState)
         {
-            case AIState.Patrol:
-                Patrol();
-                break;
-
-            case AIState.Investigate:
-                Investigate();
-                break;
-
-            case AIState.Attack:
-                Attack();
-                break;
-
-            case AIState.Cover:
-                Cover();
-                break;
+            case AIState.Patrol: HandlePatrol(); break;
+            case AIState.Combat: HandleCombat(); break;
+            case AIState.Retreat: HandleRetreat(); break;
+            case AIState.Investigate: HandleInvestigate(); break;
+            case AIState.Ambush: HandleAmbush(); break; // NEW: The rat tactic
         }
     }
 
     void UpdateAnimator()
     {
-        if (anim == null)
-            return;
-
-        Vector3 localVelocity =
-            transform.InverseTransformDirection(
-                agent.velocity);
-
-        float moveX =
-            localVelocity.x /
-            Mathf.Max(agent.speed, 0.01f);
-
-        float moveY =
-            localVelocity.z /
-            Mathf.Max(agent.speed, 0.01f);
-
-        anim.SetFloat(
-            "MoveX",
-            moveX,
-            0.1f,
-            Time.deltaTime);
-
-        anim.SetFloat(
-            "MoveY",
-            moveY,
-            0.1f,
-            Time.deltaTime);
-
-        anim.SetBool(
-            "Shoot",
-            playerVisible);
+        if (anim == null) return;
+        Vector3 localVelocity = transform.InverseTransformDirection(agent.velocity);
+        
+        anim.SetFloat("MoveX", localVelocity.x / Mathf.Max(agent.speed, 0.01f), 0.1f, Time.deltaTime);
+        anim.SetFloat("MoveY", localVelocity.z / Mathf.Max(agent.speed, 0.01f), 0.1f, Time.deltaTime);
+        
+        anim.SetBool("Shoot", playerVisible && currentState == AIState.Combat && !isCrouching);
+        anim.SetBool("Crouch", isCrouching);
     }
-
-    #region VISION
 
     void UpdateVision()
     {
-        playerVisible = CanSeePlayer();
+        Vector3 targetPoint = player.position + Vector3.up * 1.5f; 
+        Vector3 dirToPlayer = targetPoint - eyes.position;
+        float distance = dirToPlayer.magnitude;
+
+        int visionMask = ~LayerMask.GetMask("Enemy", "Ignore Raycast");
+        playerVisible = false; 
+
+        // FIX: If he was shot recently, he automatically knows where you are (Aggro Override)
+        if (aggroTimer > 0)
+        {
+            playerVisible = true;
+            lastKnownPosition = player.position;
+        }
+        else if (distance <= 40f)
+        {
+            float angle = Vector3.Angle(transform.forward, dirToPlayer);
+            if (angle < 70f || distance < 3f) 
+            {
+                if (Physics.Raycast(eyes.position, dirToPlayer.normalized, out RaycastHit hit, 40f, visionMask, QueryTriggerInteraction.Ignore))
+                {
+                    if (hit.collider.CompareTag("Player"))
+                    {
+                        playerVisible = true;
+                    }
+                }
+            }
+        }
+
+        if (playerVisible && !wasPlayerVisibleLastFrame)
+        {
+            canShootTime = Time.time + reactionTime;
+        }
+        wasPlayerVisibleLastFrame = playerVisible;
 
         if (playerVisible)
         {
-            lastKnownPosition =
-                player.position;
+            lastKnownPosition = player.position;
+            if (currentState == AIState.Patrol || currentState == AIState.Investigate || currentState == AIState.Ambush)
+            {
+                ChooseNewTactic();
+                currentState = AIState.Combat;
+            }
         }
     }
 
-    bool CanSeePlayer()
+    #region PATROL, INVESTIGATE & AMBUSH
+    void HandlePatrol()
     {
-        Vector3 dir =
-            player.position - eyes.position;
-
-        float distance =
-            dir.magnitude;
-
-        if (distance > visionRange)
-            return false;
-
-        float angle =
-            Vector3.Angle(
-                transform.forward,
-                dir);
-
-        if (angle > visionAngle * 0.5f)
-            return false;
-
-        Vector3 head =
-            player.position + Vector3.up * 1.7f;
-
-        Vector3 chest =
-            player.position + Vector3.up;
-
-        Vector3 legs =
-            player.position + Vector3.up * 0.3f;
-
-        return
-            CanSeePoint(head) ||
-            CanSeePoint(chest) ||
-            CanSeePoint(legs);
-    }
-
-    bool CanSeePoint(Vector3 point)
-    {
-        Vector3 dir =
-            point - eyes.position;
-
-        float distance =
-            dir.magnitude;
-
-        if (Physics.Raycast(
-            eyes.position,
-            dir.normalized,
-            out RaycastHit hit,
-            distance))
-        {
-            return hit.collider.CompareTag("Player");
-        }
-
-        return false;
-    }
-
-    #endregion
-
-    #region PATROL
-
-    void Patrol()
-    {
+        isCrouching = false;
         agent.speed = patrolSpeed;
-
-        if (playerVisible)
-        {
-            currentState =
-                AIState.Attack;
-
-            return;
-        }
-
-        if (!agent.pathPending &&
-            agent.remainingDistance < 1f)
-        {
-            PickRandomPatrol();
-        }
+        if (!agent.pathPending && agent.remainingDistance < 1f) PickRandomPatrol();
     }
 
     void PickRandomPatrol()
     {
-        if (patrolPoints.Length == 0)
-            return;
-
-        int index =
-            Random.Range(
-                0,
-                patrolPoints.Length);
-
-        agent.SetDestination(
-            patrolPoints[index].position);
+        if (patrolPoints == null || patrolPoints.Length == 0) return;
+        agent.SetDestination(patrolPoints[Random.Range(0, patrolPoints.Length)].position);
     }
 
-    #endregion
-
-    #region INVESTIGATE
-
-    void Investigate()
+    void HandleInvestigate()
     {
-        if (playerVisible)
+        isCrouching = false;
+        agent.speed = walkSpeed;
+        if (!agent.pathPending && agent.remainingDistance < 1f)
         {
-            currentState =
-                AIState.Attack;
-
-            return;
-        }
-
-        if (!agent.pathPending &&
-            agent.remainingDistance < 1f)
-        {
-            currentState =
-                AIState.Patrol;
-
-            PickRandomPatrol();
+            // Instead of going back to patrol, he gets ratty and sets up an ambush
+            currentState = AIState.Ambush;
+            Transform cheekyCorner = GetBestCover();
+            if (cheekyCorner != null) agent.SetDestination(cheekyCorner.position);
         }
     }
 
+    void HandleAmbush()
+    {
+        // He runs to a corner, crouches, and waits for you to walk by
+        if (agent.remainingDistance < 1f)
+        {
+            isCrouching = true;
+            // Aim at the exact spot he last saw you, waiting for you to peek
+            Vector3 lookDir = lastKnownPosition - transform.position;
+            lookDir.y = 0;
+            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(lookDir), Time.deltaTime * 5f);
+        }
+        else
+        {
+            agent.speed = sprintSpeed;
+            isCrouching = false;
+        }
+    }
     #endregion
 
-    #region ATTACK
-
-    void Attack()
+    #region AAA COMBAT LOGIC
+    void HandleCombat()
     {
-        agent.speed = combatSpeed;
+        FacePlayer();
 
+        if (currentHealth < maxHealth * 0.4f)
+        {
+            currentState = AIState.Retreat;
+            return;
+        }
+
+        // If he loses sight of you mid-fight, he starts investigating
         if (!playerVisible)
         {
-            currentState =
-                AIState.Investigate;
-
-            agent.SetDestination(
-                lastKnownPosition);
-
+            currentState = AIState.Investigate;
+            agent.SetDestination(lastKnownPosition);
             return;
         }
 
-        FacePlayer();
+        tacticTimer -= Time.deltaTime;
+        if (tacticTimer <= 0) ChooseNewTactic();
 
-        if (Time.time > nextStrafeTime)
+        switch (currentTactic)
         {
-            RandomStrafe();
+            case CombatTactic.CrouchSpray:
+                isCrouching = true;
+                agent.isStopped = true; 
+                if (Time.time > nextFireTime && Time.time >= canShootTime) Shoot();
+                break;
 
-            nextStrafeTime =
-                Time.time +
-                Random.Range(1f, 3f);
-        }
+            case CombatTactic.WideSwing:
+                isCrouching = false;
+                agent.isStopped = false;
+                agent.speed = sprintSpeed;
+                if (agent.remainingDistance < 1f) 
+                {
+                    Vector3 strafeDir = transform.right * (Random.value > 0.5f ? 5f : -5f);
+                    if (NavMesh.SamplePosition(transform.position + strafeDir, out NavMeshHit hit, 5f, NavMesh.AllAreas))
+                    {
+                        agent.SetDestination(hit.position);
+                    }
+                }
+                if (Time.time > nextFireTime && Time.time >= canShootTime) Shoot();
+                break;
 
-        if (Time.time > nextFireTime)
-        {
-            Shoot();
-        }
-
-        if (shotCounter >= shotsBeforeCover)
-        {
-            FindCover();
+            case CombatTactic.JigglePeek:
+                isCrouching = false;
+                agent.isStopped = false;
+                agent.speed = walkSpeed;
+                
+                if (tacticTimer % 2f > 1f) 
+                {
+                    agent.SetDestination(peekPosition);
+                    if (Time.time > nextFireTime && Time.time >= canShootTime) Shoot();
+                }
+                else 
+                {
+                    agent.SetDestination(hidePosition);
+                }
+                break;
+                
+            case CombatTactic.HoldAngle:
+                isCrouching = true;
+                agent.isStopped = true;
+                // Dead accuracy, no movement, just waiting for you to step into his crosshair
+                if (Time.time > nextFireTime && Time.time >= canShootTime) Shoot();
+                break;
         }
     }
 
-    void RandomStrafe()
+    void ChooseNewTactic()
     {
-        Vector3 offset =
-            Random.insideUnitSphere *
-            strafeRadius;
+        CombatTactic newTactic;
+        do {
+            newTactic = (CombatTactic)Random.Range(0, 4);
+        } while (newTactic == lastTactic);
 
-        offset.y = 0;
+        if (fearLevel > 2f && Random.value > 0.3f) newTactic = CombatTactic.JigglePeek;
 
-        agent.SetDestination(
-            player.position +
-            offset);
+        currentTactic = newTactic;
+        lastTactic = newTactic;
+
+        if (currentTactic == CombatTactic.CrouchSpray) tacticTimer = 1.5f; 
+        if (currentTactic == CombatTactic.WideSwing) tacticTimer = 2.5f; 
+        if (currentTactic == CombatTactic.HoldAngle) tacticTimer = 2.0f;
+        
+        if (currentTactic == CombatTactic.JigglePeek)
+        {
+            tacticTimer = 4f;
+            Transform cover = GetBestCover();
+            if (cover != null)
+            {
+                hidePosition = cover.position;
+                peekPosition = hidePosition + (transform.right * 1.5f);
+            }
+            else currentTactic = CombatTactic.CrouchSpray; 
+        }
     }
-
     #endregion
 
-    #region COVER
-
-   void FindCover()
+    #region SURVIVAL & COVER
+    void HandleRetreat()
     {
-        activeCover = GetBestCover();
-
-        // 1. IS THERE ANY COVER AT ALL?
-        if (activeCover == null)
-        {
-            // Nowhere to hide. Choose violence!
-            shotCounter = 0; // Reset ammo so he doesn't immediately try to find cover again
-            currentState = AIState.Attack;
-            return;
-        }
-
-        // 2. THE BRAIN: IS IT A SUICIDE RUN?
-        // Calculate exactly how far the AI has to run to get to safety
-        float distanceToCover = Vector3.Distance(transform.position, activeCover.position);
-
-        // If the cover is really far away AND the player has a clear line of sight...
-        if (distanceToCover > maxRunDistance && playerVisible)
-        {
-            Debug.Log("Cover is too far! Standing my ground!");
-            
-            // Running is a death sentence. Stand ground and shoot back!
-            shotCounter = 0; // Reset shots so he actually fights instead of looping
-            currentState = AIState.Attack;
-            
-            // Optional: You can make him strafe more aggressively here!
-            nextStrafeTime = Time.time; 
-            
-            return; // Stop the code here so he doesn't run.
-        }
-
-        // 3. FLIGHT: WE CAN MAKE IT!
-        currentState = AIState.Cover;
-        agent.speed = coverSpeed;
-        agent.SetDestination(activeCover.position);
+        isCrouching = false;
+        agent.isStopped = false;
+        agent.speed = sprintSpeed;
         
-        coverTimer = 0f;
-        FacePlayer();
+        Transform safeCover = GetBestCover();
+        if (safeCover != null) agent.SetDestination(safeCover.position);
 
-        // Fire a parting shot while turning to run
-        if (playerVisible && Time.time >= nextFireTime)
+        if (agent.remainingDistance < 1f)
         {
-            Shoot();
-        }
-    }
-    void Cover()
-    {
-        if (agent.remainingDistance > 1f)
-            return;
-
-        agent.SetDestination(activeCover.position);
-        FacePlayer();
-
-        // FIX: Now the enemy actually waits between shots while in cover!
-        if (playerVisible && Time.time >= nextFireTime)
-        {
-            Shoot();
-        }
-
-        coverTimer += Time.deltaTime;
-
-        if (coverTimer >= coverTime)
-        {
-            shotCounter = 0;
-            currentState = AIState.Attack;
+            fearLevel += 1f; 
+            isCrouching = true;
+            tacticTimer = 3f;
+            currentState = AIState.Combat;
+            currentTactic = CombatTactic.HoldAngle; // He waits at the cover to ambush you if you chase
         }
     }
 
@@ -440,43 +343,16 @@ public class EnemyAI : MonoBehaviour
     {
         Transform bestCover = null;
         float minDistanceToEnemy = Mathf.Infinity;
-
-        // Get the direction from the enemy to the player
         Vector3 dirToPlayer = (player.position - transform.position).normalized;
+
+        if (coverPoints == null || coverPoints.Length == 0) return null;
 
         foreach (Transform cover in coverPoints)
         {
-            // 1. Does this cover break line of sight with the player?
             if (Physics.Linecast(cover.position, player.position, obstacleMask))
             {
-                // Get the direction from the enemy to this specific cover
                 Vector3 dirToCover = (cover.position - transform.position).normalized;
-
-                // 2. Is the cover away from the player?
-                // Vector3.Dot compares the two directions. 
-                // A value < 0 means the cover is behind the enemy. 
-                // A value of 0.2f gives a little leniency so they can move sideways to cover.
                 if (Vector3.Dot(dirToPlayer, dirToCover) < 0.2f)
-                {
-                    float distanceToCover = Vector3.Distance(transform.position, cover.position);
-
-                    // 3. Is this the closest valid cover we've checked so far?
-                    if (distanceToCover < minDistanceToEnemy)
-                    {
-                        minDistanceToEnemy = distanceToCover;
-                        bestCover = cover;
-                    }
-                }
-            }
-        }
-
-        // Fallback: If no "ideal" cover away from the player is found, 
-        // just find the nearest cover that at least breaks line of sight.
-        if (bestCover == null)
-        {
-            foreach (Transform cover in coverPoints)
-            {
-                if (Physics.Linecast(cover.position, player.position, obstacleMask))
                 {
                     float dist = Vector3.Distance(transform.position, cover.position);
                     if (dist < minDistanceToEnemy)
@@ -487,96 +363,112 @@ public class EnemyAI : MonoBehaviour
                 }
             }
         }
-
         return bestCover;
     }
     #endregion
 
-    #region SHOOTING
-
- void Shoot()
+    #region SHOOTING & DAMAGE
+    void Shoot()
     {
         nextFireTime = Time.time + fireRate;
-        shotCounter++;
-
         if (anim != null) anim.SetTrigger("Shoot");
 
-        // NEW: Play the bullet sound every time the gun fires!
         if (shootSound != null && enemyAudioSource != null)
         {
+            enemyAudioSource.pitch = Random.Range(0.95f, 1.05f);
             enemyAudioSource.PlayOneShot(shootSound);
         }
 
-        Vector3 aim = (player.position + Vector3.up * 1.5f) - firePoint.position;
-        Vector3 laserEnd = firePoint.position + aim.normalized * visionRange;
+        Vector3 playerHead = player.position + Vector3.up * 1.6f; 
+        Vector3 aimDir = (playerHead - eyes.position).normalized;
+        Vector3 laserEnd = firePoint.position + aimDir * 40f;
 
-        if (Physics.Raycast(firePoint.position, aim.normalized, out RaycastHit hit, visionRange))
+        int shootMask = ~LayerMask.GetMask("Enemy", "Ignore Raycast");
+
+        if (Physics.Raycast(eyes.position, aimDir, out RaycastHit hit, 40f, shootMask, QueryTriggerInteraction.Ignore))
         {
             laserEnd = hit.point;
-
+            
             if (hit.collider.CompareTag("Player"))
             {
-                TPSPlayerController p = hit.collider.GetComponent<TPSPlayerController>();
-                if (p != null) p.TakeDamage(damage);
+                float hitHeight = hit.point.y - hit.collider.bounds.min.y;
+                float playerHeight = hit.collider.bounds.size.y;
+                
+                bool isHeadshot = (hitHeight / playerHeight) > 0.8f;
+                float finalDamage = isHeadshot ? baseDamage * headshotMultiplier : baseDamage;
+
+                hit.collider.GetComponent<TPSPlayerController>()?.TakeDamage(finalDamage);
             }
         }
 
         StartCoroutine(RenderLaser(firePoint.position, laserEnd));
     }
 
-    IEnumerator RenderLaser(
-        Vector3 start,
-        Vector3 end)
+    IEnumerator RenderLaser(Vector3 start, Vector3 end)
     {
         tracer.enabled = true;
-
         tracer.SetPosition(0, start);
         tracer.SetPosition(1, end);
-
-        yield return new WaitForSeconds(0.05f);
-
+        yield return new WaitForSeconds(0.04f); 
         tracer.enabled = false;
     }
 
-    #endregion
-
     void FacePlayer()
     {
-        Vector3 dir =
-            player.position -
-            transform.position;
-
+        Vector3 dir = player.position - transform.position;
         dir.y = 0;
-
-        Quaternion rot =
-            Quaternion.LookRotation(dir);
-
-        transform.rotation =
-            Quaternion.Slerp(
-                transform.rotation,
-                rot,
-                Time.deltaTime * 10f);
+        if (dir.sqrMagnitude > 0.1f)
+        {
+            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 15f); // Sped up the turning slightly
+        }
     }
 
-   public void TakeDamage(float amount, Vector3 hitPoint, Vector3 hitNormal)
+    public void TakeDamage(float amount, Vector3 hitPoint, Vector3 hitNormal)
     {
         if (currentState == AIState.Dead) return;
-
         currentHealth -= amount;
-
-        // Spawn hit particle facing away from the wall/enemy
-        if (hitParticlePrefab != null)
-        {
-            Instantiate(hitParticlePrefab, hitPoint, Quaternion.LookRotation(hitNormal));
-        }
+        
+        if (hitParticlePrefab != null) Instantiate(hitParticlePrefab, hitPoint, Quaternion.LookRotation(hitNormal));
 
         if (currentHealth <= 0)
         {
             Die();
             return;
         }
+        
+        // --- THE FIXED 180 SNAP & AGGRO LOGIC ---
+        aggroTimer = 3f; // Forces vision to stay true for 3 seconds even if he looks away
+        playerVisible = true;
+        lastKnownPosition = player.position;
+        currentState = AIState.Combat;
 
-        if (currentState != AIState.Cover) FindCover();
+        // 1. Instant 180 Flick Shot to the Head
+        Vector3 dirToYou = player.position - transform.position;
+        dirToYou.y = 0;
+        transform.rotation = Quaternion.LookRotation(dirToYou);
+
+        // 2. React
+        if (Random.value > 0.5f)
+        {
+            currentTactic = CombatTactic.CrouchSpray;
+            tacticTimer = 2f; 
+            isCrouching = true;
+            agent.isStopped = true;
+            canShootTime = Time.time; // Instantly pull the trigger because he got shot
+        }
+        else
+        {
+            currentTactic = CombatTactic.WideSwing; 
+            tacticTimer = 1.5f;
+            isCrouching = false;
+            agent.isStopped = false;
+            
+            Vector3 dodgeDir = transform.right * (Random.value > 0.5f ? 4f : -4f);
+            if (NavMesh.SamplePosition(transform.position + dodgeDir, out NavMeshHit navHit, 5f, NavMesh.AllAreas))
+            {
+                agent.SetDestination(navHit.position);
+            }
+        }
     }
 
     void Die()
@@ -587,85 +479,38 @@ public class EnemyAI : MonoBehaviour
         if (anim != null) anim.SetTrigger("Die");
         GetComponent<Collider>().enabled = false;
 
-        // Trigger the Valorant kill sound
         if (KillManager.Instance != null)
         {
             KillManager.Instance.RegisterKill();
         }
 
-        // Start the respawn loop instead of Destroy(gameObject)
         StartCoroutine(RespawnRoutine());
     }
 
-   System.Collections.IEnumerator RespawnRoutine()
+    IEnumerator RespawnRoutine()
     {
-        // Wait for the death animation to finish and clear the body
         yield return new WaitForSeconds(1.5f);
         
-        // Hide enemy temporarily, BUT skip the tracer!
         Renderer[] renderers = GetComponentsInChildren<Renderer>();
-        foreach (var r in renderers)
-        {
-            if (r != tracer) r.enabled = false; 
-        }
-
-        // Forcefully shut the laser off so it doesn't get stuck in the air
+        foreach (var r in renderers) if (r != tracer) r.enabled = false; 
         tracer.enabled = false;
 
-        yield return new WaitForSeconds(0.5f); // Wait 2 seconds before respawning
+        yield return new WaitForSeconds(1.5f); 
 
-        // Reset everything
         transform.position = startPosition;
         currentHealth = maxHealth;
         GetComponent<Collider>().enabled = true;
         
-        // Turn the body back on, BUT leave the tracer turned off!
-        foreach (var r in renderers)
-        {
-            if (r != tracer) r.enabled = true; 
-        }
+        foreach (var r in renderers) if (r != tracer) r.enabled = true; 
         
-        if (anim != null) anim.Play("Idle"); // Reset animator
+        if (anim != null) anim.Play("Idle"); 
         
-        // Push the fire timer 1.5 seconds into the future so they don't instakill you
-        nextFireTime = Time.time + fireRate + 0.4f;
-        shotCounter = 0;
+        nextFireTime = Time.time + fireRate + 0.5f;
+        fearLevel = 0f; 
         
         agent.isStopped = false;
         currentState = AIState.Patrol;
         PickRandomPatrol();
     }
-    void OnDrawGizmosSelected()
-    {
-        if (eyes == null)
-            return;
-
-        Gizmos.color = Color.yellow;
-
-        Gizmos.DrawWireSphere(
-            eyes.position,
-            visionRange);
-
-        Vector3 left =
-            Quaternion.Euler(
-                0,
-                -visionAngle / 2,
-                0)
-            * transform.forward;
-
-        Vector3 right =
-            Quaternion.Euler(
-                0,
-                visionAngle / 2,
-                0)
-            * transform.forward;
-
-        Gizmos.DrawRay(
-            eyes.position,
-            left * visionRange);
-
-        Gizmos.DrawRay(
-            eyes.position,
-            right * visionRange);
-    }
+    #endregion
 }

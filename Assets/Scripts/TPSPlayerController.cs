@@ -163,13 +163,8 @@ public class TPSPlayerController : MonoBehaviour
         // --- UPDATED: The Anti-Crash Audio Setup ---
         if (shootSound != null && playerAudioSource != null)
         {
-            // 1. Instantly stop the previous gunshot's echo from stacking
             playerAudioSource.Stop(); 
-            
-            // 2. Add a tiny bit of random pitch so machine gun fire sounds natural
             playerAudioSource.pitch = Random.Range(0.95f, 1.05f); 
-            
-            // 3. Play the clean, new gunshot
             playerAudioSource.clip = shootSound;
             playerAudioSource.Play();
         }
@@ -177,13 +172,18 @@ public class TPSPlayerController : MonoBehaviour
         Ray ray = Camera.main.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
         Vector3 hitPoint;
 
-       if (Physics.Raycast(ray, out RaycastHit hit, weaponRange))
+        // FIX 1: Ignore the Player's own body so you don't block your own bullets
+        int layerMask = ~LayerMask.GetMask("Player", "Ignore Raycast");
+
+        // FIX 2: Use QueryTriggerInteraction.Ignore so bullets bypass vision cones/triggers
+        if (Physics.Raycast(ray, out RaycastHit hit, weaponRange, layerMask, QueryTriggerInteraction.Ignore))
         {
             hitPoint = hit.point;
             
             if (hit.collider.CompareTag("Enemy"))
             {
-                hit.collider.GetComponent<EnemyAI>().TakeDamage(25f, hit.point, hit.normal);
+                // FIX 3: Use GetComponentInParent so hitting ANY part of the enemy works
+                hit.collider.GetComponentInParent<EnemeyGoalAi>()?.TakeDamage(25f, hit.point, hit.normal);            
             }
         }
         else
