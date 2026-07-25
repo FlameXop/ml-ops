@@ -3974,6 +3974,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EnemyAI
   currentState: 0
+  currentTactic: 0
   eyes: {fileID: 597628978}
   firePoint: {fileID: 1950302448}
   healthBar: {fileID: 0}
@@ -3990,20 +3991,22 @@ MonoBehaviour:
   - {fileID: 1713782763}
   - {fileID: 1985844678}
   - {fileID: 1330737992}
-  coverTime: 10
-  visionRange: 37.3
-  visionAngle: 64.5
+  fearLevel: 0
   obstacleMask:
     serializedVersion: 2
     m_Bits: 72
   fireRate: 0.8
-  damage: 25
-  strafeRadius: 5
-  shotsBeforeCover: 3
+  baseDamage: 25
+  headshotMultiplier: 8
+  reactionTime: 0.35
   patrolSpeed: 3.5
-  combatSpeed: 7.75
-  coverSpeed: 7
+  walkSpeed: 3.5
+  sprintSpeed: 6.5
+  crouchSpeed: 2
   maxHealth: 100
+  hitParticlePrefab: {fileID: 0}
+  shootSound: {fileID: 0}
+  enemyAudioSource: {fileID: 0}
 --- !u!120 &812522199
 LineRenderer:
   serializedVersion: 3
@@ -4193,6 +4196,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7422838d5944c84a802fefeaa2280cb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EnemyAnimationController
+  anim: {fileID: 0}
+  agent: {fileID: 0}
 --- !u!1001 &813449480
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -9303,6 +9308,8 @@ MonoBehaviour:
   fireRate: 0.2
   cameraTransform: {fileID: 330585546}
   anim: {fileID: 1802932235}
+  shootSound: {fileID: 0}
+  playerAudioSource: {fileID: 0}
 --- !u!143 &1802932233
 CharacterController:
   m_ObjectHideFlags: 0
