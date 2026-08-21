@@ -379,7 +379,23 @@ public class EnemeyGoalAi : MonoBehaviour
             enemyAudioSource.PlayOneShot(shootSound);
         }
 
-        Vector3 playerHead = player.position + Vector3.up * 1.6f; 
+        // Aiming at the player's head area
+        // THE FIX: Dynamically find the upper body/head area based on the capsule's actual size
+        Collider playerCol = player.GetComponentInChildren<Collider>();
+        Vector3 playerHead;
+
+        if (playerCol != null)
+        {
+            // bounds.center gets the exact middle, extents.y gets the half-height. 
+            // Multiplying by 0.6f targets the "head" area (top 20% of the capsule)
+            playerHead = playerCol.bounds.center + (Vector3.up * (playerCol.bounds.extents.y * 0.6f));
+        }
+        else
+        {
+            // Fallback if no collider is found
+            playerHead = player.position;
+        }
+
         Vector3 aimDir = (playerHead - eyes.position).normalized;
         Vector3 laserEnd = firePoint.position + aimDir * 40f;
 
@@ -388,16 +404,30 @@ public class EnemeyGoalAi : MonoBehaviour
         if (Physics.Raycast(eyes.position, aimDir, out RaycastHit hit, 40f, shootMask, QueryTriggerInteraction.Ignore))
         {
             laserEnd = hit.point;
-            
-            if (hit.collider.CompareTag("Player"))
+
+            // THE FIX: Use GetComponentInParent just like we did for the Player's gun
+            PlayerHealth targetHealth = hit.collider.GetComponentInParent<PlayerHealth>();
+
+            // Check if we hit the player via Tag OR by successfully finding the health script
+            if (hit.collider.CompareTag("Player") || targetHealth != null)
             {
+                // Safe bounds checking
                 float hitHeight = hit.point.y - hit.collider.bounds.min.y;
                 float playerHeight = hit.collider.bounds.size.y;
-                
-                bool isHeadshot = (hitHeight / playerHeight) > 0.8f;
+
+                // Prevent calculation errors if a tiny weapon collider is hit instead of the body
+                bool isHeadshot = false;
+                if (playerHeight > 0.1f)
+                {
+                    isHeadshot = (hitHeight / playerHeight) > 0.8f;
+                }
+
                 float finalDamage = isHeadshot ? baseDamage * headshotMultiplier : baseDamage;
 
-                hit.collider.GetComponent<TPSPlayerController>()?.TakeDamage(finalDamage);
+                if (targetHealth != null)
+                {
+                    targetHealth.TakeDamage(finalDamage);
+                }
             }
         }
 
